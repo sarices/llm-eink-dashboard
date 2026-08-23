@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="architecture-title architecture-desc">
+  <title id="architecture-title">LLM E-Ink Dashboard 系统架构</title>
+  <desc id="architecture-desc">React 用户界面通过 Tauri 桥接调用 Rust 应用服务。服务安全读取 Keychain，管理 SQLite 本地数据，访问供应商 API，并通过渲染、EPD 协议与 BLE 向设备推送图像。</desc>
+  <defs><style>.k{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.title{font-size:28px;font-weight:700}.sub{font-size:20px}.meta{font-size:18px}.node{fill:#f9faf6;stroke:#c2c9bd;stroke-width:2}.core{fill:#1d201e}.lime{fill:#d4ff63}.muted{fill:#687266}.ink{fill:#1d201e}.wire{fill:none;stroke:#7a8278;stroke-width:2.5}.dash{stroke-dasharray:8 7}</style><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7a8278"/></marker></defs>
+  <rect width="1200" height="760" rx="18" fill="#eef0eb"/>
+  <text x="56" y="66" class="k title ink">系统架构</text><text x="56" y="98" class="k m meta muted">LOCAL-FIRST DESKTOP APPLICATION</text>
+  <rect x="54" y="133" width="718" height="550" rx="13" fill="#e4e8e0" stroke="#c2c9bd" stroke-width="2"/>
+  <text x="82" y="174" class="k m meta muted">macOS 应用</text>
+  <g transform="translate(86 214)"><rect width="188" height="108" rx="9" class="node"/><rect width="188" height="10" rx="9" class="lime"/><text x="20" y="53" class="k sub ink" font-weight="700">React 界面</text><text x="20" y="82" class="k m meta muted">概览 · 数据源 · 设备 · 日志</text></g>
+  <g transform="translate(319 214)"><rect width="188" height="108" rx="9" class="node"/><rect width="188" height="10" rx="9" class="lime"/><text x="20" y="53" class="k sub ink" font-weight="700">Tauri 桥接</text><text x="20" y="82" class="k m meta muted">类型化 Commands</text></g>
+  <g transform="translate(553 205)"><rect width="178" height="126" rx="9" class="core"/><text x="20" y="49" class="k sub" font-weight="700" fill="#f9faf6">Rust 服务</text><text x="20" y="78" class="k m meta" fill="#bfc8b9">同步 · 计划 · 日志</text><text x="20" y="105" class="k m meta" fill="#bfc8b9">状态编排</text></g>
+  <path d="M274 268H319M507 268H553" class="wire" marker-end="url(#arrow)"/>
+  <g transform="translate(103 449)"><rect width="212" height="142" rx="9" class="node"/><text x="22" y="49" class="k sub ink" font-weight="700">SQLite</text><text x="22" y="78" class="k m meta muted">数据源 · 快照 · 日志</text><text x="22" y="105" class="k m meta muted">设备 · 应用设置</text></g>
+  <g transform="translate(370 449)"><rect width="212" height="142" rx="9" class="node"/><text x="22" y="49" class="k sub ink" font-weight="700">macOS Keychain</text><text x="22" y="78" class="k m meta muted">API Key / 访问令牌</text><text x="22" y="105" class="k m meta muted">仅在运行时读取</text></g>
+  <path d="M642 331V389H209V449M642 331V389H476V449" class="wire dash" marker-end="url(#arrow)"/>
+  <g transform="translate(590 449)"><rect width="141" height="142" rx="9" class="node"/><text x="20" y="48" class="k sub ink" font-weight="700">渲染与设备</text><text x="20" y="77" class="k m meta muted">三色位图</text><text x="20" y="104" class="k m meta muted">EPD · BLE</text></g>
+  <path d="M642 331V449" class="wire" marker-end="url(#arrow)"/>
+  <rect x="824" y="133" width="322" height="550" rx="13" fill="#f9faf6" stroke="#c2c9bd" stroke-width="2"/>
+  <text x="852" y="174" class="k m meta muted">外部边界</text>
+  <g transform="translate(856 226)"><rect width="258" height="126" rx="9" fill="#fff" stroke="#c2c9bd" stroke-width="2"/><text x="22" y="49" class="k sub ink" font-weight="700">LLM / New API</text><text x="22" y="78" class="k m meta muted">HTTPS · 余额 · 用量</text><text x="22" y="105" class="k m meta muted">供应商适配器</text></g>
+  <g transform="translate(856 469)"><rect width="258" height="126" rx="9" fill="#fff" stroke="#c2c9bd" stroke-width="2"/><text x="22" y="49" class="k sub ink" font-weight="700">NRF_EPD 设备</text><text x="22" y="78" class="k m meta muted">Bluetooth LE · MTU</text><text x="22" y="105" class="k m meta muted">分块 · CRC · 刷新</text></g>
+  <path d="M731 268H794V289H856M731 520H794V532H856" class="wire" marker-end="url(#arrow)"/>
+  <text x="56" y="724" class="k m meta muted">可信边界：凭据保留在 Keychain，SQLite 不存储明文密钥。</text>
+</svg>

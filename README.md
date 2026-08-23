@@ -1,83 +1,268 @@
-# LLM E‑Ink Dashboard
+# LLM E-Ink Dashboard
 
-macOS 上运行的本地优先 LLM 用量与余额仪表盘：Rust 处理同步、SQLite、脚本校验、渲染与 EPD 协议；React 只呈现数据和发起 Tauri 命令。
+面向 macOS 的本地优先 LLM 用量仪表盘。它从已选择的数据源读取余额与用量，生成适配三色电子墨水屏的仪表盘图像，并通过 BLE 推送到 `NRF_EPD` 设备。
 
-## 当前可执行 MVP
+应用不把 API Key 写入 SQLite 或前端持久化状态。密钥保存在 macOS Keychain，数据、日志和设备配置保存在本机。
 
-- Tauri 2 + React 桌面壳与概览 UI；
-- `UsageSnapshot`、按本机时区日聚合、费用规则；
-- SQLite 数据源、快照、同步运行记录与快照去重；
-- DeepSeek 余额 adapter、OpenAI-compatible 连通性 adapter；
-- 受控自定义脚本：最小环境变量、30 秒超时、1 MB 输出上限、JSON 契约校验；
-- SVG EPD 预览、仪表盘单色 packed bitmap、CRC16-CCITT 分块封包和缺块计算；
-- macOS CoreBluetooth：仅扫描/连接名称以 `NRF_EPD` 开头的设备，读取固件版本后选择 CRC 或传统图像传输，执行状态位图校验、缺块重传（最多三轮）并在刷新后保持连接；
-- 数据源管理、同步、设备配置、计划任务、托盘菜单、开机启动命令面。
+## 功能
 
-> 真实设备传输要求固件暴露 EPD vendor 服务 `62750001-d828-918d-fb46-b6c11c675aec` 下、同时支持 Write 和 Notify/Indicate 的控制特征 `62750002-d828-918d-fb46-b6c11c675aec`；应用会在执行写入前进行服务、特征 UUID 与能力校验。尚未在本仓库环境以物理 EPD 设备完成端到端人工验证。API key 不写入 SQLite 或 React 持久化状态。
+- 数据源管理：支持 DeepSeek、OpenAI-compatible、New API 与受控脚本数据源。
+- New API 个人访问令牌：读取账户余额、今日自然日与本月自然月 `token_used` 汇总。
+- 用量概览：今日 TOKEN、本月 TOKEN、余额与当前选择的数据源。
+- 电子墨水屏：扫描 `NRF_EPD`、读取固件与 EPD 特征、生成预览、三色图层渲染、CRC 分块传输与缺块重传。
+- 自动同步：按计划刷新数据、连接上次使用的设备、推送完成后断开。
+- 本地日志：同步、设备连接和传输事件分页查看，保留 30 天。
+- macOS 集成：托盘菜单、关闭隐藏窗口、重新打开、登录启动与应用内版本显示。
 
-## 物理 EPD 验证
+## 系统架构
 
-1. 打开 macOS 蓝牙并让设备以 `NRF_EPD` 前缀广播；首次扫描时在系统提示中允许蓝牙访问。
-2. 在应用中扫描并选择设备；只有发现 vendor 服务 `62750001` 下、支持写入与通知的特征 `62750002` 后，“推送仪表盘到 EPD”才可用。
-3. 点击推送，应用读取版本特征：版本 `>= 0x20` 使用 CRC 分块、状态位图和最多三轮缺块重传；旧版本或无法读取版本时回退传统图像传输。完成后只发送 `REFRESH`。
-4. 成功后应用保持 BLE 连接，可直接再次推送；仅点击“断开连接”、设备主动断线或应用退出时结束连接。若失败，请保留应用错误信息和设备固件版本。
+```mermaid
+flowchart LR
+  user[用户] --> ui
 
-## 当前未完成项与验收缺口
+  subgraph desktop[macOS 桌面应用]
+    ui[React 界面<br/>概览 / 数据源 / 设备 / 日志]
+    bridge[Tauri Command Bridge]
+    core[Rust 应用服务<br/>同步 / 计划 / 日志 / 状态]
+    render[渲染器<br/>SVG -> 三色位图]
+    epd[EPD 协议<br/>分块 / CRC / 重传 / 刷新]
+    ble[BLE 适配器<br/>扫描 / 连接 / 通知]
+    ui <--> bridge
+    bridge <--> core
+    core --> render --> epd --> ble
+  end
 
-以下清单记录的是当前代码与 `DEVELOPMENT.md` 的 MVP 目标之间尚未完成、或尚未取得真机/人工验收证据的项目。已构建或已通过单元测试不等于该项已经完成。
+  subgraph local[本地可信边界]
+    db[(SQLite<br/>数据源 / 快照 / 日志 / 设置)]
+    keychain[macOS Keychain<br/>API Key / 访问令牌]
+    core <--> db
+    core <--> keychain
+  end
 
-### 阻断 MVP 验收
+  subgraph external[外部系统]
+    provider[LLM / New API 服务]
+    device[NRF_EPD 电子墨水屏]
+  end
 
-- **真实 EPD 端到端刷新尚未验证**：`NRF_EPD_8BA2` 可以扫描、连接并发现控制特征，但尚未取得一次“连接 → 写入 → `REFRESH` → 连续第二次推送仍保持连接”的真机结果。
-- **EPD 固件协议兼容性待确认**：应用已参照官方网页发送 `INIT`、按版本选择 CRC/传统传输、在 CRC 模式中使用批量 `WithoutResponse` 写入和状态位图确认；仍需从真机确认协商 MTU 与异常断线下的恢复行为。
-- **DeepSeek Keychain 读取问题待处理**：曾出现 `部分同步失败：Deepseek: read credential from macOS Keychain`。需要重新保存凭据并确认 Keychain 访问权限及错误处理。
+  core <-- HTTPS --> provider
+  ble <-- Bluetooth LE --> device
+```
 
-### 数据与后台任务
+### 分层职责
 
-- **定时器尚未执行实际同步链路**：计划任务配置可保存，但尚未实现/验证“到期 → 拉取数据源 → 写入快照 → 更新 EPD”的后台调度、串行化、取消与失败重试。
-- **内容 hash 跳过刷新未实现**：尚未比较本次渲染结果与上次成功显示内容；相同内容仍可能重复走 BLE 传输。
-- **日/月、账户、模型的完整统计展示未完成**：已有快照与部分聚合领域代码，但概览页目前只呈现简化指标，缺少按服务、账户、模型、自然日/自然月的可用浏览与对比界面。
-- **价格规则与费用展示未接通主流程**：领域层存在费用计算能力，但尚未形成可配置价格规则、按模型成本计算和页面展示的完整功能。
+| 层 | 目录 | 职责 |
+| --- | --- | --- |
+| 界面 | `src/app` | React 页面、Toast、设备菜单、版本显示与状态呈现。 |
+| 桥接 | `src/lib/tauri.ts` | 前端对 Tauri commands 的类型化调用。 |
+| 应用服务 | `src-tauri/src/commands.rs` | 数据源、同步、设备、计划、日志与设置命令。 |
+| 数据源 | `src-tauri/src/providers` | 各供应商认证、验证、余额与用量查询。 |
+| 存储与密钥 | `src-tauri/src/storage`、`src-tauri/src/secrets` | SQLite 业务数据与 Keychain 凭据引用。 |
+| 设备与图像 | `src-tauri/src/ble.rs`、`epd`、`render` | BLE、EPD 报文、三色渲染与预览。 |
 
-### 数据源与配置体验
+## 同步与推送流程
 
-- **数据源管理不完整**：当前界面可新增/编辑基本配置，尚缺删除、启用/禁用、排序、能力声明展示以及按数据源查看同步结果与错误的完整流程。
-- **供应商能力仍需扩展和真机/API 验证**：DeepSeek 余额、OpenAI-compatible 连通性和脚本 JSON 校验已有实现，但历史用量、模型拆分、不同网关余额接口、限流/认证错误等适配器行为尚未完成完整 fixtures 和人工验证。
-- **同步日志界面未完成**：`sync_runs` 有存储基础，但 UI 尚未提供可追踪的同步历史、错误详情、传输字节数和单次任务状态。
+```mermaid
+sequenceDiagram
+  actor U as 用户或计划任务
+  participant UI as React / 托盘
+  participant C as Rust 同步服务
+  participant K as macOS Keychain
+  participant P as 数据源 API
+  participant S as SQLite
+  participant B as BLE / NRF_EPD
 
-### EPD 渲染与设备支持
+  U->>UI: 立即同步或计划到期
+  UI->>C: sync_and_push
+  C->>S: 读取已选择的数据源与设置
+  C->>K: 读取 API Key / 访问令牌
+  K-->>C: 仅返回运行时密钥
+  C->>P: 查询余额与用量
+  P-->>C: 账户与统计响应
+  C->>S: 保存快照、同步运行记录与日志
+  C->>C: 按本地自然日 / 自然月聚合并渲染
+  C->>B: 扫描并重连上次 NRF_EPD
+  B-->>C: 固件、MTU、EPD 控制特征
+  C->>B: INIT + 图层分块 + CRC
+  B-->>C: 状态位图 / 缺块
+  alt 有缺块
+    C->>B: 最多三轮重传
+  end
+  C->>B: REFRESH
+  C->>B: 断开设备
+  C-->>UI: Toast、概览刷新、同步完成事件
+```
 
-- **渲染器仍是基础黑白统计图形**：当前生成一位 packed bitmap，尚未实现与网页预览严格一致的文本栅格化、字体布局、golden image 验证和更完整的统计卡片模板。
-- **三色/四色 EPD 未实现**：设备配置允许颜色层参数，但实际统计卡片传输目前明确只支持黑白单层；多图层渲染、分层传输与设备验证仍缺失。
-- **多设备与布局策略未实现**：尚无多屏轮播、每设备独立模板或不同分辨率布局的完整配置和调度策略。
-- **BLE 断线恢复只覆盖局部路径**：已做分块重传和连接对象复用，但睡眠唤醒、连接中断、传输占用互斥、下一次任务自动恢复等真实场景仍需实现和验证。
+### 用量边界与 New API
 
-### 发布与质量
+New API 个人访问令牌模式要求配置 `baseUrl`、`userId` 和访问令牌。同步时使用：
 
-- **发布流程未完成**：已可生成 macOS `.app`，但尚未完成 Developer ID 签名、notarization、DMG、升级/迁移说明及公开分发验证。
-- **自动化测试覆盖不完整**：现有 Rust 单测覆盖协议分块、CRC、部分聚合和渲染管线；仍缺 HTTP mock、适配器失败/限流、脚本超时与恶意输出、BLE fake 外设、渲染 golden image，以及 macOS 睡眠/托盘/Keychain 的人工验收。
+| 指标 | 接口 | 统计边界 | 汇总字段 |
+| --- | --- | --- | --- |
+| 余额 | `/api/user/self` | 当前账户 | `quota`、`used_quota` |
+| 今日 TOKEN | `/api/data/self` | 系统本地时区当天 `00:00` 至当前时间 | 所有记录的 `token_used` |
+| 本月 TOKEN | `/api/data/self` | 系统本地时区本月 1 日 `00:00` 至当前时间 | 所有记录的 `token_used` |
+
+针对 CDN 缓存或截断响应，应用为时间段查询附带唯一请求标识和无缓存头，连续请求三次并选择最大有效汇总值。快照也记录无敏感信息的查询起止时间与记录数，便于排查。
+
+## 本地数据模型
+
+```mermaid
+erDiagram
+  SOURCES {
+    text id PK
+    text name
+    text kind
+    integer enabled
+    text config_json
+    text secret_ref
+  }
+  SNAPSHOTS {
+    integer id PK
+    text source_id FK
+    text observed_at
+    text period
+    integer total_tokens
+    text payload
+  }
+  SYNC_RUNS {
+    text sync_id PK
+    text started_at
+    text ended_at
+    text status
+    text error_summary
+  }
+  LOGS {
+    integer id PK
+    text occurred_at
+    text level
+    text action
+    text message
+    text details
+  }
+  APP_SETTINGS {
+    text key PK
+    text value
+  }
+
+  SOURCES ||--o{ SNAPSHOTS : produces
+```
+
+- 数据库位置：`~/Library/Application Support/LLM E-Ink Dashboard/llm-eink-dashboard.sqlite`
+- `secret_ref` 是 Keychain 引用，不是密钥内容。
+- 快照以数据源、账户、模型、周期和观察时间去重。
+- 日志会在数据库打开时自动清理 30 天前的记录。
+
+## EPD 设备协议
+
+设备必须以 `NRF_EPD` 开头广播，并暴露 EPD vendor 服务：
+
+| 项目 | 值 |
+| --- | --- |
+| 服务 UUID | `62750001-d828-918d-fb46-b6c11c675aec` |
+| 控制特征 UUID | `62750002-d828-918d-fb46-b6c11c675aec` |
+| 特征能力 | 同时支持 Write 与 Notify 或 Indicate |
+| 固件 `>= 0x20` | CRC 分块、状态位图校验与缺块重传 |
+| 旧固件或版本未知 | 传统图像传输回退路径 |
+
+传输成功只代表报文与设备状态确认完成；应以设备实际刷新画面作为最终验收依据。
 
 ## 开发
 
+### 前置条件
+
+- macOS 11 或更高版本。
+- Node.js 22。
+- Rust stable 与 Xcode Command Line Tools。
+- 蓝牙与 Keychain 访问权限，用于真机设备和真实数据源验证。
+
+### 本地运行
+
 ```bash
-npm install --cache .npm-cache
+npm ci
 npm run tauri dev
 ```
 
-如果全局 npm 缓存没有写权限，请如上使用项目内 cache。Rust 同样可使用项目内缓存：
+### 质量检查
 
 ```bash
-cd src-tauri
-CARGO_HOME=../.cargo cargo test --lib
+npm run build
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 ```
 
-## 自定义脚本
+### 构建 DMG
 
-脚本只能向标准输出写 UTF-8 JSON，格式参照 `scripts/examples/usage-source.sh`。应用会传入：
+```bash
+npm run tauri bundle -- --bundles dmg
+```
 
-- `LLM_DASHBOARD_SOURCE_ID`
-- `LLM_DASHBOARD_RANGE_START`
-- `LLM_DASHBOARD_RANGE_END`
-- `LLM_DASHBOARD_CONFIG_JSON`
+输出路径：
 
-不要通过命令行参数、脚本输出或日志传入 API key。密钥应由脚本自行从 Keychain 或安全配置读取。
+```text
+src-tauri/target/release/bundle/dmg/LLM E-Ink Dashboard_<version>_aarch64.dmg
+```
+
+当前 DMG 没有 Developer ID 签名和 notarization。首次打开时如遇 Gatekeeper 提示，请在确认来源可信后通过 macOS 的“隐私与安全性”放行。
+
+## 分支与发布流程
+
+开发在 `develop` 分支进行，通过 Pull Request 合并到 `main`。合并完成后 GitHub Actions 在 Apple Silicon runner 上执行测试、构建 DMG 并创建 GitHub Release。
+
+```mermaid
+flowchart TD
+  dev[develop 开发分支] --> pr[创建 Pull Request]
+  pr --> review{代码审查与检查通过?}
+  review -- 否 --> dev
+  review -- 是 --> merge[合并到 main]
+  merge --> action[GitHub Actions: macos-14]
+  action --> test[cargo test]
+  test --> bundle[Tauri 打包 aarch64 DMG]
+  bundle --> artifact[上传 Actions Artifact]
+  artifact --> release[按 tauri.conf.json 版本创建 GitHub Release]
+  release --> dmg[附加 DMG]
+```
+
+工作流定义在 [`.github/workflows/build-macos-dmg.yml`](.github/workflows/build-macos-dmg.yml)。它只接受 `develop` 合并到 `main` 的 PR 触发 Release；手动触发只生成临时 Artifact。每次发布前必须递增以下三个版本号：
+
+- `package.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/tauri.conf.json`
+
+## 项目结构
+
+```text
+.
+├── src/                         # React 前端
+│   ├── app/App.tsx              # 页面与交互
+│   ├── lib/tauri.ts             # Tauri command 客户端
+│   └── styles/app.css
+├── src-tauri/
+│   ├── src/
+│   │   ├── commands.rs          # 应用命令与同步编排
+│   │   ├── providers/           # DeepSeek / New API / 脚本适配器
+│   │   ├── storage/             # SQLite 仓储
+│   │   ├── secrets/             # macOS Keychain
+│   │   ├── ble.rs               # CoreBluetooth
+│   │   ├── epd/                 # EPD 报文与重传
+│   │   └── render/              # SVG 与三色位图
+│   ├── capabilities/            # Tauri ACL
+│   └── tauri.conf.json
+└── .github/workflows/           # CI / Release
+```
+
+## 安全原则
+
+- API Key、个人访问令牌仅保存于 macOS Keychain。
+- SQLite、日志、前端状态均不保存明文密钥。
+- 自定义脚本只接受 UTF-8 JSON，具有 30 秒超时与 1 MB 输出上限。
+- 不要在 Issue、日志、截图或 Git 提交中粘贴访问令牌。
+
+## 排障
+
+| 现象 | 检查项 |
+| --- | --- |
+| New API 数据低于服务端页面 | 确认当前选择的是正确数据源；在“日志”检查同步记录；重新同步后核对查询记录数；确认本地应用版本。 |
+| Keychain 凭据找不到 | 在“数据源”编辑该来源，重新输入 API Key 或个人访问令牌并保存；检查 Keychain 是否已解锁。 |
+| 找不到 EPD | 保持设备以 `NRF_EPD` 名称广播；授权蓝牙；在左上设备菜单持续扫描。 |
+| EPD 传输成功但屏幕未刷新 | 核对服务 UUID、控制特征能力和固件版本；保留“日志”中的 MTU、分块数和重试信息。 |
+| 不确定运行的是哪个安装包 | 查看左侧底部“版本”；它来自 Tauri 运行时的应用版本，而非前端静态文本。 |

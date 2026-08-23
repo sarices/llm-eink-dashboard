@@ -1,5 +1,5 @@
 use btleplug::api::Peripheral as _;
-use chrono::{Datelike, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Local, TimeZone, Utc};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt;
 use uuid::Uuid;
@@ -357,40 +357,36 @@ fn get_overview_from_state(state: &AppState) -> Result<DashboardViewModel, Strin
         })
         .collect::<Vec<_>>();
     let now = Utc::now();
-    let has_day_summary = snapshots
-        .iter()
-        .any(|snapshot| snapshot.period == crate::domain::snapshot::Period::Day);
-    let has_month_summary = snapshots
-        .iter()
-        .any(|snapshot| snapshot.period == crate::domain::snapshot::Period::Month);
-    let today = snapshots
-        .iter()
-        .filter(|s| {
-            if has_day_summary {
-                s.period == crate::domain::snapshot::Period::Day
-                    && s.observed_at.date_naive() == now.date_naive()
-            } else {
-                s.period == crate::domain::snapshot::Period::Instant
-                    && s.observed_at.date_naive() == now.date_naive()
-            }
-        })
-        .filter_map(UsageSnapshot::effective_total_tokens)
-        .sum();
-    let month = snapshots
-        .iter()
-        .filter(|s| {
-            if has_month_summary {
-                s.period == crate::domain::snapshot::Period::Month
-                    && s.observed_at.year() == now.year()
-                    && s.observed_at.month() == now.month()
-            } else {
-                s.period == crate::domain::snapshot::Period::Instant
-                    && s.observed_at.year() == now.year()
-                    && s.observed_at.month() == now.month()
-            }
-        })
-        .filter_map(UsageSnapshot::effective_total_tokens)
-        .sum();
+    let local_now = now.with_timezone(&Local);
+    let today_start = Local
+        .with_ymd_and_hms(
+            local_now.year(),
+            local_now.month(),
+            local_now.day(),
+            0,
+            0,
+            0,
+        )
+        .single()
+        .expect("当前本地日期必须有效")
+        .with_timezone(&Utc);
+    let month_start = Local
+        .with_ymd_and_hms(local_now.year(), local_now.month(), 1, 0, 0, 0)
+        .single()
+        .expect("当前本地月份必须有效")
+        .with_timezone(&Utc);
+    let today = period_total(
+        &snapshots,
+        today_start,
+        now,
+        crate::domain::snapshot::Period::Day,
+    );
+    let month = period_total(
+        &snapshots,
+        month_start,
+        now,
+        crate::domain::snapshot::Period::Month,
+    );
     let balance = snapshots.iter().find_map(|s| {
         s.balance_amount
             .as_ref()
@@ -408,6 +404,34 @@ fn get_overview_from_state(state: &AppState) -> Result<DashboardViewModel, Strin
             (None, _) => "尚未选择数据源".into(),
         },
     })
+}
+
+fn period_total(
+    snapshots: &[UsageSnapshot],
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    summary_period: crate::domain::snapshot::Period,
+) -> u64 {
+    if let Some(summary) = snapshots
+        .iter()
+        .filter(|snapshot| {
+            snapshot.period == summary_period
+                && snapshot.observed_at >= start
+                && snapshot.observed_at <= end
+        })
+        .max_by_key(|snapshot| snapshot.observed_at)
+    {
+        return summary.effective_total_tokens().unwrap_or_default();
+    }
+    snapshots
+        .iter()
+        .filter(|snapshot| {
+            snapshot.period == crate::domain::snapshot::Period::Instant
+                && snapshot.observed_at >= start
+                && snapshot.observed_at <= end
+        })
+        .filter_map(UsageSnapshot::effective_total_tokens)
+        .sum()
 }
 
 #[tauri::command]
@@ -463,10 +487,18 @@ async fn sync_sources_inner(state: &AppState) -> Result<String, String> {
             fetch_source(
                 &configured,
                 QueryRange {
-                    start: Utc
-                        .with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
+                    start: Local
+                        .with_ymd_and_hms(
+                            now.with_timezone(&Local).year(),
+                            now.with_timezone(&Local).month(),
+                            1,
+                            0,
+                            0,
+                            0,
+                        )
                         .single()
-                        .expect("当前 UTC 年月必须有效"),
+                        .expect("当前本地月份必须有效")
+                        .with_timezone(&Utc),
                     end: now,
                 },
             ),

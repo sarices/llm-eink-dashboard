@@ -11,6 +11,7 @@ mod storage;
 use chrono::{DateTime, Utc};
 use state::AppState;
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     Emitter, Manager, RunEvent,
@@ -30,7 +31,10 @@ pub fn run() {
             let sync = MenuItem::with_id(app, "sync", "立即同步", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &sync, &quit])?;
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
             TrayIconBuilder::with_id("main-tray")
+                .icon(tray_icon)
+                .icon_as_template(false)
                 .menu(&menu)
                 .tooltip("LLM E-Ink Dashboard")
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -139,20 +143,25 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build dashboard")
-        .run(|app, event| {
-            if let RunEvent::WindowEvent {
+        .run(|app, event| match event {
+            RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
-            } = event
-            {
-                if label == "main" {
-                    api.prevent_close();
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
+            } if label == "main" => {
+                api.prevent_close();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
                 }
             }
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            _ => {}
         })
 }
 

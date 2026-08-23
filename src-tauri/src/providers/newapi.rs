@@ -2,7 +2,7 @@ use super::{ProviderAdapter, ProviderCapabilities, QueryRange, SourceConfig, Val
 use crate::domain::snapshot::{DataConfidence, Period, UsageSnapshot};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::{Datelike, TimeZone, Utc};
+use chrono::{Datelike, Local, TimeZone, Utc};
 use rust_decimal::Decimal;
 use std::time::Duration;
 
@@ -255,17 +255,19 @@ impl ProviderAdapter for NewApiAdapter {
                 provider_record_id: None,
             });
 
-            let today_start = Utc
+            let local_now = observed_at.with_timezone(&Local);
+            let today_start = Local
                 .with_ymd_and_hms(
-                    observed_at.year(),
-                    observed_at.month(),
-                    observed_at.day(),
+                    local_now.year(),
+                    local_now.month(),
+                    local_now.day(),
                     0,
                     0,
                     0,
                 )
                 .single()
-                .context("无法计算 New API 今日统计起始时间")?;
+                .context("无法计算 New API 今日统计起始时间")?
+                .with_timezone(&Utc);
             let mut day_tokens = 0_u64;
             for (period, start) in [(Period::Day, today_start), (Period::Month, range.start)] {
                 let stat: serde_json::Value = self

@@ -13,11 +13,47 @@ permissions:
   contents: write
 
 jobs:
-  bundle:
-    name: Bundle macOS Apple Silicon DMG
+  version-check:
+    name: Check application version
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'develop')
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      value: ${{ steps.version.outputs.value }}
+
+    steps:
+      - name: Check out merged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Compare application version
+        id: version
+        shell: bash
+        run: |
+          current="$(node -e 'const fs = require("fs"); process.stdout.write(JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8")).version)')"
+          if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "无效的应用版本：$current" >&2
+            exit 1
+          fi
+
+          previous="$(git show HEAD^1:src-tauri/tauri.conf.json 2>/dev/null | node -e 'let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => process.stdout.write(input ? JSON.parse(input).version : ""))')"
+          if [[ "$current" == "$previous" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "应用版本未变更（$current），跳过 DMG 构建和 Release。"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "应用版本从 ${previous:-未设置} 更新为 $current。"
+          fi
+          printf 'value=%s\n' "$current" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    name: Bundle macOS Apple Silicon DMG
+    needs: version-check
+    if: needs.version-check.outputs.changed == 'true'
     runs-on: macos-14
     timeout-minutes: 30
 
@@ -50,10 +86,6 @@ jobs:
       - name: Build DMG
         run: npm run tauri build -- --bundles dmg
 
-      - name: Read release version
-        id: version
-        run: echo "value=$(node -p \"require('./src-tauri/tauri.conf.json').version\")" >> "$GITHUB_OUTPUT"
-
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
@@ -66,7 +98,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.value }}
-          name: LLM E-Ink Dashboard v${{ steps.version.outputs.value }}
+          tag_name: v${{ needs.version-check.outputs.value }}
+          name: LLM E-Ink Dashboard v${{ needs.version-check.outputs.value }}
           generate_release_notes: true
           files: src-tauri/target/release/bundle/dmg/*.dmg

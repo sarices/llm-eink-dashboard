@@ -118,6 +118,14 @@ src-tauri/target/release/bundle/dmg/LLM E-Ink Dashboard_<version>_aarch64.dmg
 
 当前 DMG 未使用 Developer ID 签名或 notarization。首次打开遇到 Gatekeeper 提示时，请先确认来源可信，再在 macOS “隐私与安全性”中放行。
 
+若确认应用来自可信发布来源，但仍被隔离属性阻止打开，可在终端执行以下命令后重新启动应用：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/LLM E-Ink Dashboard.app"
+```
+
+该命令会移除指定应用的 macOS 下载隔离标记；请勿对来源未知的应用执行。
+
 ## 自动发布
 
 日常开发在 `develop` 分支完成。`develop` 的 Pull Request 合并到 `main` 后，GitHub Actions 会在 Apple Silicon runner 上执行测试、构建 DMG，并按应用版本创建 GitHub Release。仅 Markdown 与 `docs/` 的变更不触发打包。

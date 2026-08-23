@@ -48,7 +48,7 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build DMG
-        run: npm run tauri bundle -- --bundles dmg
+        run: npm run tauri build -- --bundles dmg
 
       - name: Read release version
         id: version

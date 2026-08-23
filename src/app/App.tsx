@@ -116,7 +116,7 @@ function Shell() {
     try {
       await api.disconnectDevice(deviceConnection.id);
       setDeviceConnection(null);
-      setDeviceMenuOpen(true);
+      setDeviceMenuOpen(false);
       toast("设备已断开连接");
     } catch (reason) {
       toast(String(reason), "error");
@@ -124,9 +124,8 @@ function Shell() {
     }
   }, [deviceConnection, toast]);
   useEffect(() => {
-    if (autoConnectingDevice || syncing || deviceConnection) return;
+    if (!deviceMenuOpen || autoConnectingDevice || syncing || deviceConnection) return;
     let cancelled = false;
-    setDeviceMenuOpen(true);
     const scanContinuously = async () => {
       setScanning(true);
       while (!cancelled) {
@@ -147,7 +146,7 @@ function Shell() {
     };
     void scanContinuously();
     return () => { cancelled = true; };
-  }, [autoConnectingDevice, deviceConnection, syncing]);
+  }, [autoConnectingDevice, deviceConnection, deviceMenuOpen, syncing]);
   const context: ShellContext = { toast, deviceConnection, devices, scanning, connectingDeviceId, autoConnectingDevice, setDeviceConnection, connectDevice, disconnectDevice };
   return <main><aside><div className="brand"><Monitor/><span>INK / LLM</span></div><DeviceMenu connection={deviceConnection} devices={devices} scanning={scanning} scanError={scanError} autoConnecting={autoConnectingDevice} connectingDeviceId={connectingDeviceId} open={deviceMenuOpen} onOpenChange={setDeviceMenuOpen} onConnect={connectDevice} onDisconnect={disconnectDevice}/><nav>
     <NavLink to="/overview"><Activity size={17}/>概览</NavLink><NavLink to="/sources"><Database size={17}/>数据源</NavLink><NavLink to="/devices"><Cable size={17}/>设备</NavLink><NavLink to="/schedule"><CalendarClock size={17}/>计划任务</NavLink><NavLink to="/logs"><History size={17}/>日志</NavLink><NavLink to="/settings"><SettingsIcon size={17}/>设置</NavLink>
@@ -229,11 +228,11 @@ function DevicesPage() {
     }
   };
   return <>
-    <div className="page-title"><h2>电子墨水屏设备</h2><p>连接状态固定显示在左上角；未连接时会持续查找 `NRF_EPD*` 设备。</p></div>
+    <div className="page-title"><h2>电子墨水屏设备</h2><p>应用默认不扫描设备；立即同步或计划任务会查找并连接上次使用的 `NRF_EPD*` 设备。</p></div>
     <article className="panel full">
       <button className="secondary" onClick={() => void validateBitmap()} disabled={validating}><RefreshCw size={16}/>{validating ? "校验中…" : "校验传输位图"}</button>
       {autoConnectingDevice && <p className="device">正在自动连接上次使用的电子墨水屏设备…</p>}
-      {!connection && !autoConnectingDevice && <p className="device">{scanning ? "正在持续扫描可连接设备…" : "等待蓝牙扫描启动…"}</p>}
+      {!connection && !autoConnectingDevice && <p className="device">{scanning ? "正在扫描可连接设备…" : "未启动扫描；可在左上角设备菜单手动查找设备。"}</p>}
       {preparedBlocks !== null && <p className="device">位图校验通过，已准备 {preparedBlocks} 个 CRC 分块</p>}
       {!connection && devices.map(device => <button className="device device-button" onClick={() => void connectDevice(device.id)} disabled={autoConnectingDevice || connectingDeviceId !== null} key={device.id}>{device.name}{connectingDeviceId === device.id ? " · 连接中…" : device.rssi === null ? "" : ` · RSSI ${device.rssi} dBm`}</button>)}
       {connection && <>

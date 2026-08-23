@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">LLM E-Ink Dashboard</title>
+  <desc id="hero-desc">本地 LLM 用量数据经由 macOS 应用，安全地显示在三色电子墨水屏上。</desc>
+  <defs>
+    <style>
+      .k{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.muted{fill:#7a8278}.ink{fill:#1d201e}.line{stroke:#b9c1b5;stroke-width:2}.lime{fill:#d4ff63}.paper{fill:#f9faf6}.red{fill:#d84932}.small{font-size:21px}.label{font-size:24px;font-weight:600}.title{font-size:66px;font-weight:700}
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#1d201e" flood-opacity=".14"/></filter>
+  </defs>
+  <rect width="1200" height="500" rx="18" fill="#eef0eb"/>
+  <path d="M74 56H80V84H74zM74 96H80V124H74zM74 136H80V164H74z" fill="#d4ff63"/>
+  <text x="106" y="88" class="k m small muted" letter-spacing="3">MACOS · 本地优先 · BLE</text>
+  <text x="106" y="163" class="k title ink">LLM E-Ink</text>
+  <text x="106" y="235" class="k title ink">Dashboard</text>
+  <text x="106" y="292" class="k" font-size="20" font-weight="600" fill="#7a8278">本地采集 · 三色渲染 · 可靠推送</text>
+  <g transform="translate(106 340)">
+    <rect width="158" height="47" rx="6" class="ink"/><text x="22" y="30" class="k m" font-size="17" fill="#f9faf6">Keychain</text>
+    <path d="M177 23H218" class="line"/><path d="M214 17l10 6-10 6" fill="none" stroke="#7a8278" stroke-width="2"/>
+    <rect x="235" width="176" height="47" rx="6" class="lime"/><text x="258" y="30" class="k m" font-size="17" fill="#1d201e">LLM 数据源</text>
+  </g>
+  <g filter="url(#shadow)" transform="translate(760 55)">
+    <rect width="315" height="394" rx="16" class="ink"/>
+    <rect x="18" y="19" width="279" height="356" rx="7" class="paper"/>
+    <rect x="39" y="43" width="88" height="10" rx="5" fill="#1d201e"/>
+    <text x="39" y="87" class="k m" font-size="15" fill="#667060" letter-spacing="2">LLM 用量概览</text>
+    <text x="39" y="143" class="k" font-size="41" font-weight="700" fill="#1d201e">¥ 12.48</text>
+    <text x="42" y="168" class="k m" font-size="14" fill="#667060">账户余额</text>
+    <line x1="39" y1="195" x2="276" y2="195" stroke="#ced3c9"/>
+    <text x="39" y="232" class="k m" font-size="14" fill="#667060">今日 TOKEN</text><text x="39" y="268" class="k" font-size="31" font-weight="700" fill="#1d201e">41.1M</text>
+    <text x="174" y="232" class="k m" font-size="14" fill="#667060">本月 TOKEN</text><text x="174" y="268" class="k" font-size="31" font-weight="700" fill="#d84932">1.12B</text>
+    <rect x="39" y="305" width="237" height="42" rx="5" fill="#d4ff63"/><text x="55" y="332" class="k" font-size="17" font-weight="600" fill="#1d201e">已同步 · 10:28</text>
+  </g>
+  <path d="M657 250H724" fill="none" stroke="#1d201e" stroke-width="3"/><path d="M717 241l14 9-14 9" fill="#1d201e"/>
+  <g transform="translate(562 194)">
+    <rect width="96" height="112" rx="12" fill="#f9faf6" stroke="#b9c1b5" stroke-width="2"/>
+    <circle cx="48" cy="38" r="15" fill="#d4ff63"/><path d="M39 38h18M48 29v18" stroke="#1d201e" stroke-width="3"/>
+    <text x="48" y="86" class="k m" text-anchor="middle" font-size="14" fill="#52604f">本地</text><text x="48" y="104" class="k m" text-anchor="middle" font-size="14" fill="#52604f">应用</text>
+  </g>
+  <text x="760" y="475" class="k m" font-size="15" fill="#7a8278">NRF_EPD · 三色墨水 · CRC 传输</text>
+</svg>

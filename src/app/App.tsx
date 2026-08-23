@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { HashRouter, NavLink, Navigate, Outlet, Route, Routes, useOutletContext } from "react-router-dom";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { Activity, Cable, CalendarClock, ChevronDown, Database, History, Monitor, Pencil, Plus, RefreshCw, Settings as SettingsIcon, Trash2, Unplug, X } from "lucide-react";
 import { api, type BleConnectionInfo, type BleDevice, type LogEntry, type Overview, type Schedule, type Settings, type Source, type SourceConfig, type TransferResult } from "../lib/tauri";
@@ -61,7 +62,15 @@ function Shell() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [connectingDeviceId, setConnectingDeviceId] = useState<string | null>(null);
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState("读取中");
   const toast = useCallback((message: string, kind: ToastKind = "notice") => setToastState({ message, kind }), []);
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      setAppVersion("开发版");
+      return;
+    }
+    void getVersion().then(setAppVersion).catch(() => setAppVersion("未知"));
+  }, []);
   useEffect(() => {
     if (!toastState) return;
     const timeout = window.setTimeout(() => setToastState(null), toastState.kind === "error" ? 8000 : 3500);
@@ -142,7 +151,7 @@ function Shell() {
   const context: ShellContext = { toast, deviceConnection, devices, scanning, connectingDeviceId, autoConnectingDevice, setDeviceConnection, connectDevice, disconnectDevice };
   return <main><aside><div className="brand"><Monitor/><span>INK / LLM</span></div><DeviceMenu connection={deviceConnection} devices={devices} scanning={scanning} scanError={scanError} autoConnecting={autoConnectingDevice} connectingDeviceId={connectingDeviceId} open={deviceMenuOpen} onOpenChange={setDeviceMenuOpen} onConnect={connectDevice} onDisconnect={disconnectDevice}/><nav>
     <NavLink to="/overview"><Activity size={17}/>概览</NavLink><NavLink to="/sources"><Database size={17}/>数据源</NavLink><NavLink to="/devices"><Cable size={17}/>设备</NavLink><NavLink to="/schedule"><CalendarClock size={17}/>计划任务</NavLink><NavLink to="/logs"><History size={17}/>日志</NavLink><NavLink to="/settings"><SettingsIcon size={17}/>设置</NavLink>
-  </nav><div className="side-footer">本地优先<br/>密钥只存于 Keychain</div></aside><section className="workspace"><header><div><p className="eyebrow">DASHBOARD / LOCAL</p><h1>LLM E‑Ink Dashboard</h1><p className="muted">按功能页面管理数据、设备和本机设置</p></div><button className="primary" onClick={() => void sync()} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""}/>{syncing ? "同步中" : "立即同步"}</button></header>{toastState && <Toast {...toastState} onClose={() => setToastState(null)}/>}<Outlet context={context}/></section></main>;
+  </nav><div className="side-footer">本地优先<br/>密钥只存于 Keychain<br/><span style={{ display: "block", marginTop: 6, color: "#d4ff63", fontSize: 10 }}>版本 {appVersion}</span></div></aside><section className="workspace"><header><div><p className="eyebrow">DASHBOARD / LOCAL</p><h1>LLM E‑Ink Dashboard</h1><p className="muted">按功能页面管理数据、设备和本机设置</p></div><button className="primary" onClick={() => void sync()} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""}/>{syncing ? "同步中" : "立即同步"}</button></header>{toastState && <Toast {...toastState} onClose={() => setToastState(null)}/>}<Outlet context={context}/></section></main>;
 }
 
 function useToast() { return useOutletContext<ToastContext>(); }

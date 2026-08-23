@@ -419,7 +419,9 @@ fn period_total(
                 && snapshot.observed_at >= start
                 && snapshot.observed_at <= end
         })
-        .max_by_key(|snapshot| snapshot.observed_at)
+        // Token use only grows within a calendar period. Prefer the largest valid
+        // provider summary so a transient incomplete response cannot lower the UI.
+        .max_by_key(|snapshot| snapshot.effective_total_tokens().unwrap_or_default())
     {
         return summary.effective_total_tokens().unwrap_or_default();
     }

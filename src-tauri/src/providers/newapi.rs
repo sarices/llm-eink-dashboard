@@ -10,6 +10,13 @@ const QUOTA_PER_USD: i64 = 500_000;
 const NEW_API_USER_HEADER: &str = "New-Api-User";
 const CLIENT_USER_AGENT: &str = "cc-switch/1.0";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
+const DATA_QUERY_ATTEMPTS: usize = 3;
+
+#[derive(Debug, Clone, Copy)]
+struct UsageTotal {
+    tokens: u64,
+    records: usize,
+}
 
 pub struct NewApiAdapter {
     client: reqwest::Client,
@@ -58,66 +65,95 @@ fn json_u64(value: &serde_json::Value) -> Option<u64> {
         .or_else(|| value.as_str().and_then(|number| number.parse().ok()))
 }
 
-async fn fetch_personal_log_tokens(
+fn local_period_starts(
+    observed_at: chrono::DateTime<Utc>,
+) -> Result<(chrono::DateTime<Utc>, chrono::DateTime<Utc>)> {
+    let local_now = observed_at.with_timezone(&Local);
+    let today_start = Local
+        .with_ymd_and_hms(
+            local_now.year(),
+            local_now.month(),
+            local_now.day(),
+            0,
+            0,
+            0,
+        )
+        .single()
+        .context("无法计算 New API 今日统计起始时间")?
+        .with_timezone(&Utc);
+    let month_start = Local
+        .with_ymd_and_hms(local_now.year(), local_now.month(), 1, 0, 0, 0)
+        .single()
+        .context("无法计算 New API 本月统计起始时间")?
+        .with_timezone(&Utc);
+    Ok((today_start, month_start))
+}
+
+async fn fetch_personal_data_tokens(
     client: &reqwest::Client,
     root: &str,
     key: &str,
     user_id: &str,
     start: i64,
     end: i64,
-) -> Result<u64> {
-    let mut total_tokens = 0_u64;
-    // The fallback is only used when New API's aggregate endpoint is inconsistent.
-    // Keep the request bounded so a large history cannot block synchronization.
-    for page in 1..=5 {
+) -> Result<UsageTotal> {
+    let mut best: Option<UsageTotal> = None;
+    for attempt in 0..DATA_QUERY_ATTEMPTS {
+        // New API deployments behind a CDN can return a stale/truncated aggregation.
+        // A unique request key and no-cache directives ensure each attempt reaches origin.
+        let request_id = format!(
+            "{}-{attempt}",
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
         let body: serde_json::Value = client
-            .get(format!("{root}/api/log/self"))
+            .get(format!("{root}/api/data/self"))
             .bearer_auth(key)
             .header(NEW_API_USER_HEADER, user_id)
             .header(reqwest::header::USER_AGENT, CLIENT_USER_AGENT)
+            .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
+            .header(reqwest::header::PRAGMA, "no-cache")
             .query(&[
-                ("p", page.to_string()),
-                ("page_size", "100".to_string()),
-                ("type", "2".to_string()),
                 ("start_timestamp", start.to_string()),
                 ("end_timestamp", end.to_string()),
+                ("default_time", "hour".to_string()),
+                ("_request_id", request_id),
             ])
             .send()
             .await?
             .error_for_status()?
             .json()
             .await?;
-        let items = body
+        if !body
+            .get("success")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            anyhow::bail!(
+                "New API 查询时间段用量失败：{}",
+                body.get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("查询失败")
+            );
+        }
+        let data = body
             .get("data")
-            .and_then(|value| value.get("items"))
-            .and_then(|value| value.as_array())
-            .cloned()
-            .unwrap_or_default();
-        total_tokens = total_tokens.saturating_add(
-            items
+            .and_then(serde_json::Value::as_array)
+            .context("New API 时间段用量响应缺少 data")?;
+        let result = UsageTotal {
+            tokens: data
                 .iter()
-                .map(|item| {
-                    item.get("prompt_tokens")
-                        .and_then(json_u64)
-                        .unwrap_or_default()
-                        .saturating_add(
-                            item.get("completion_tokens")
-                                .and_then(json_u64)
-                                .unwrap_or_default(),
-                        )
-                })
-                .sum::<u64>(),
-        );
-        let total = body
-            .get("data")
-            .and_then(|value| value.get("total"))
-            .and_then(json_u64)
-            .unwrap_or(total_tokens);
-        if items.is_empty() || (page as u64 * 100) >= total {
-            break;
+                .filter_map(|item| item.get("token_used").and_then(json_u64))
+                .sum(),
+            records: data.len(),
+        };
+        if best.is_none_or(|current| result.tokens > current.tokens) {
+            best = Some(result);
+        }
+        if attempt + 1 < DATA_QUERY_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(150)).await;
         }
     }
-    Ok(total_tokens)
+    best.context("New API 时间段用量响应为空")
 }
 
 #[async_trait]
@@ -255,68 +291,18 @@ impl ProviderAdapter for NewApiAdapter {
                 provider_record_id: None,
             });
 
-            let local_now = observed_at.with_timezone(&Local);
-            let today_start = Local
-                .with_ymd_and_hms(
-                    local_now.year(),
-                    local_now.month(),
-                    local_now.day(),
-                    0,
-                    0,
-                    0,
+            // Personal usage is defined by local calendar periods, independently of callers.
+            let (today_start, month_start) = local_period_starts(observed_at)?;
+            for (period, start) in [(Period::Day, today_start), (Period::Month, month_start)] {
+                let total = fetch_personal_data_tokens(
+                    &self.client,
+                    &root,
+                    key,
+                    user_id,
+                    start.timestamp(),
+                    range.end.timestamp(),
                 )
-                .single()
-                .context("无法计算 New API 今日统计起始时间")?
-                .with_timezone(&Utc);
-            let mut day_tokens = 0_u64;
-            for (period, start) in [(Period::Day, today_start), (Period::Month, range.start)] {
-                let stat: serde_json::Value = self
-                    .client
-                    .get(format!("{root}/api/log/self/stat"))
-                    .bearer_auth(key)
-                    .header(NEW_API_USER_HEADER, user_id)
-                    .header(reqwest::header::USER_AGENT, CLIENT_USER_AGENT)
-                    .query(&[
-                        ("type", "2".to_string()),
-                        ("start_timestamp", start.timestamp().to_string()),
-                        ("end_timestamp", range.end.timestamp().to_string()),
-                    ])
-                    .send()
-                    .await?
-                    .error_for_status()?
-                    .json()
-                    .await?;
-                if !stat
-                    .get("success")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false)
-                {
-                    anyhow::bail!(
-                        "New API 查询个人 Token 用量失败：{}",
-                        stat.get("message")
-                            .and_then(|value| value.as_str())
-                            .unwrap_or("查询失败")
-                    );
-                }
-                let mut total_tokens = stat
-                    .get("data")
-                    .and_then(|value| value.get("tpm"))
-                    .and_then(json_u64)
-                    .context("New API 个人用量响应缺少 tpm")?;
-                if total_tokens == 0 || (period == Period::Month && total_tokens < day_tokens) {
-                    total_tokens = fetch_personal_log_tokens(
-                        &self.client,
-                        &root,
-                        key,
-                        user_id,
-                        start.timestamp(),
-                        range.end.timestamp(),
-                    )
-                    .await?;
-                }
-                if period == Period::Day {
-                    day_tokens = total_tokens;
-                }
+                .await?;
                 snapshots.push(UsageSnapshot {
                     source_id: config.id.clone(),
                     provider: "newapi".into(),
@@ -327,7 +313,7 @@ impl ProviderAdapter for NewApiAdapter {
                     input_tokens: None,
                     output_tokens: None,
                     cached_tokens: None,
-                    total_tokens: Some(total_tokens),
+                    total_tokens: Some(total.tokens),
                     balance_amount: None,
                     balance_currency: None,
                     cost_amount: None,
@@ -335,7 +321,12 @@ impl ProviderAdapter for NewApiAdapter {
                     quota_used: None,
                     quota_limit: None,
                     confidence: DataConfidence::Exact,
-                    provider_record_id: None,
+                    provider_record_id: Some(format!(
+                        "data/self start={} end={} records={}",
+                        start.timestamp(),
+                        range.end.timestamp(),
+                        total.records
+                    )),
                 });
             }
         } else if let Ok(response) = self

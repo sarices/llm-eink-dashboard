@@ -13,7 +13,7 @@
   <img alt="macOS 11+" src="https://img.shields.io/badge/macOS-11%2B-1d201e?style=flat-square">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-d4ff63?style=flat-square&labelColor=1d201e">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-aarch64-1d201e?style=flat-square">
-  <img alt="License" src="https://img.shields.io/badge/license-private-1d201e?style=flat-square">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-1d201e?style=flat-square">
 </p>
 
 ## 它解决什么问题
@@ -128,7 +128,7 @@ xattr -dr com.apple.quarantine "/Applications/LLM E-Ink Dashboard.app"
 
 ## 自动发布
 
-日常开发在 `develop` 分支完成。`develop` 的 Pull Request 合并到 `main` 后，GitHub Actions 会在 Apple Silicon runner 上执行测试、构建 DMG，并按应用版本创建 GitHub Release。仅 Markdown 与 `docs/` 的变更不触发打包。
+日常开发在 `develop` 分支完成。`develop` 的 Pull Request 合并到 `main` 后，GitHub Actions 会比较合并前后的应用版本；仅版本变更时才在 Apple Silicon runner 上执行测试、构建 DMG，并创建对应版本的 GitHub Release。版本未变更或仅 Markdown、`docs/` 变更时不执行打包。
 
 工作流见 [`.github/workflows/build-macos-dmg.yml`](.github/workflows/build-macos-dmg.yml)。发布前需要同步递增：
 

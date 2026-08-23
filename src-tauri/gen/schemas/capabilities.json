@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"LLM E-Ink Dashboard desktop permissions","local":true,"windows":["main"],"permissions":["core:default","core:event:allow-listen","core:event:allow-unlisten","core:event:allow-emit"]}}

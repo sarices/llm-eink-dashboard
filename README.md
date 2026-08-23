@@ -107,7 +107,7 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 ### 构建 DMG
 
 ```bash
-npm run tauri bundle -- --bundles dmg
+npm run tauri build -- --bundles dmg
 ```
 
 输出位于：

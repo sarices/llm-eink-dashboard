@@ -769,6 +769,9 @@ fn glyph_5x7(character: char) -> [u8; 7] {
         '.' => [
             0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100,
         ],
+        ':' => [
+            0b00000, 0b00100, 0b00100, 0b00000, 0b00100, 0b00100, 0b00000,
+        ],
         _ => [0; 7],
     }
 }
@@ -840,6 +843,24 @@ mod tests {
         assert_eq!(black.len(), red.len());
         assert!(black.iter().any(|byte| *byte != 0xFF));
         assert!(red.iter().any(|byte| *byte != 0xFF));
+    }
+
+    #[test]
+    fn tricolor_render_keeps_the_sync_time_colon() {
+        let model = DashboardViewModel {
+            today_tokens: 384_730,
+            month_tokens: 1_184_730,
+            updated_at: Utc::now(),
+            balance: Some("273.31 USD".into()),
+            source_status: "ready".into(),
+        };
+        let (_, red) = render_tricolor_bitmaps(&model, 400, 300).unwrap();
+        let row_bytes = 50;
+        let is_inked = |x: usize, y: usize| red[y * row_bytes + x / 8] & (0x80 >> (x % 8)) == 0;
+
+        // The third character in the fixed-width HH:MM label is the colon.
+        assert!(is_inked(354, 16));
+        assert!(is_inked(354, 24));
     }
     #[test]
     fn renders_tiny_dimensions_without_panicking() {

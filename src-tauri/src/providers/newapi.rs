@@ -11,6 +11,7 @@ const NEW_API_USER_HEADER: &str = "New-Api-User";
 const CLIENT_USER_AGENT: &str = "cc-switch/1.0";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 const DATA_QUERY_ATTEMPTS: usize = 3;
+const MAX_DATA_QUERY_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, Copy)]
 struct UsageTotal {
@@ -89,7 +90,26 @@ fn local_period_starts(
     Ok((today_start, month_start))
 }
 
-async fn fetch_personal_data_tokens(
+fn split_data_query_ranges(start: i64, end: i64) -> Result<Vec<(i64, i64)>> {
+    if end < start {
+        anyhow::bail!("New API 时间段查询起止时间无效");
+    }
+    let mut ranges = Vec::new();
+    let mut range_start = start;
+    loop {
+        let range_end = range_start.saturating_add(MAX_DATA_QUERY_SECONDS).min(end);
+        ranges.push((range_start, range_end));
+        if range_end >= end {
+            break;
+        }
+        // New API uses inclusive timestamp bounds; advance one second to avoid
+        // counting records on a split boundary twice.
+        range_start = range_end.saturating_add(1);
+    }
+    Ok(ranges)
+}
+
+async fn fetch_personal_data_chunk_tokens(
     client: &reqwest::Client,
     root: &str,
     key: &str,
@@ -154,6 +174,28 @@ async fn fetch_personal_data_tokens(
         }
     }
     best.context("New API 时间段用量响应为空")
+}
+
+async fn fetch_personal_data_tokens(
+    client: &reqwest::Client,
+    root: &str,
+    key: &str,
+    user_id: &str,
+    start: i64,
+    end: i64,
+) -> Result<UsageTotal> {
+    let mut total = UsageTotal {
+        tokens: 0,
+        records: 0,
+    };
+    for (range_start, range_end) in split_data_query_ranges(start, end)? {
+        let chunk =
+            fetch_personal_data_chunk_tokens(client, root, key, user_id, range_start, range_end)
+                .await?;
+        total.tokens = total.tokens.saturating_add(chunk.tokens);
+        total.records = total.records.saturating_add(chunk.records);
+    }
+    Ok(total)
 }
 
 #[async_trait]
@@ -432,5 +474,57 @@ impl ProviderAdapter for NewApiAdapter {
             );
         }
         Ok(snapshots)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{split_data_query_ranges, MAX_DATA_QUERY_SECONDS};
+
+    #[test]
+    fn keeps_ranges_at_or_below_the_provider_limit() {
+        let ranges = split_data_query_ranges(100, 100 + MAX_DATA_QUERY_SECONDS).unwrap();
+
+        assert_eq!(ranges, vec![(100, 100 + MAX_DATA_QUERY_SECONDS)]);
+        assert!(ranges
+            .iter()
+            .all(|(start, end)| end - start <= MAX_DATA_QUERY_SECONDS));
+    }
+
+    #[test]
+    fn splits_a_thirty_one_day_month_without_overlap() {
+        let start = 1_000;
+        let end = start + 31 * 24 * 60 * 60;
+        let ranges = split_data_query_ranges(start, end).unwrap();
+
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0], (start, start + MAX_DATA_QUERY_SECONDS));
+        assert_eq!(ranges[1].0, ranges[0].1 + 1);
+        assert_eq!(ranges[1].1, end);
+        assert!(ranges
+            .iter()
+            .all(|(range_start, range_end)| range_end - range_start <= MAX_DATA_QUERY_SECONDS));
+    }
+
+    #[test]
+    fn splits_long_ranges_into_contiguous_second_precision_ranges() {
+        let start = 2_000;
+        let end = start + 32 * 24 * 60 * 60;
+        let ranges = split_data_query_ranges(start, end).unwrap();
+
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges.first().unwrap().0, start);
+        assert_eq!(ranges.last().unwrap().1, end);
+        for pair in ranges.windows(2) {
+            assert_eq!(pair[1].0, pair[0].1 + 1);
+        }
+        assert!(ranges
+            .iter()
+            .all(|(range_start, range_end)| range_end - range_start <= MAX_DATA_QUERY_SECONDS));
+    }
+
+    #[test]
+    fn rejects_a_reversed_range() {
+        assert!(split_data_query_ranges(2, 1).is_err());
     }
 }
